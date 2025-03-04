@@ -1,0 +1,41 @@
+# Copyright (C) 2023 Teddy Waweru and Jefferson Gakuya
+# This file is distributed under the same license as the Checkout Upsell plugin.
+msgid ""
+msgstr ""
+"Project-Id-Version: Checkout Upsell 1.3\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/checkout-upsell\n"
+"Last-Translator: JEFFERSON GAKUTA <jeffersongakuya@gmail.com>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2023-10-09T00:00:00+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.5.0\n"
+"X-Domain: checkout-upsell\n"
+
+#. Plugin Name of the plugin
+msgid "Checkout Upsell"
+msgstr ""
+
+#. Plugin URI of the plugin
+msgid "https://Tobeupdated.com/checkout-upsell"
+msgstr ""
+
+#. Description of the plugin
+msgid "Display Upsell offers to clients at Checkout"
+msgstr ""
+
+#. Author of the plugin
+msgid "Teddy Waweru and Jefferson Gakuya"
+msgstr ""
+
+#: admin/class-checkout-upsell-admin.php:123
+msgid "Enable Checkout Upsell"
+msgstr ""
+
+#: public/class-checkout-upsell-public.php:456
+msgid "Add to cart"
+msgstr ""
+
+# ... more strings ...

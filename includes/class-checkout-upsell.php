@@ -11,7 +11,17 @@ class Checkout_Upsell {
      * @since 1.3
      */
     protected static $_instance = null;
+
+    /**
+     * Instances of loader, admin, and public classes.
+     *
+     * @var Checkout_Upsell_Loader
+     * @var Checkout_Upsell_Admin
+     * @var Checkout_Upsell_Public
+     */
     private $loader;
+    private $admin_instance;
+    private $public_instance;
 
     /**
      * Main Checkout_Upsell Instance.
@@ -34,7 +44,8 @@ class Checkout_Upsell {
      */
     public function __construct() {
         $this->load_dependencies();
-        $this->init_hooks();
+        $this->define_admin_hooks();
+        $this->define_public_hooks();
         $this->set_locale();
     }
 
@@ -42,10 +53,21 @@ class Checkout_Upsell {
      * Include required core files used in admin and on the frontend.
      */
     private function load_dependencies() {
-        require_once CHECKOUT_UPSELL_PLUGIN_DIR . 'includes/class-checkout-upsell-loader.php';
-        require_once CHECKOUT_UPSELL_PLUGIN_DIR . 'includes/class-checkout-upsell-i18n.php';
-        require_once CHECKOUT_UPSELL_PLUGIN_DIR . 'public/class-checkout-upsell-public.php';
-        require_once CHECKOUT_UPSELL_PLUGIN_DIR . 'admin/class-checkout-upsell-admin.php';
+        // Ensure all required files exist before including
+        $required_files = [
+            CHECKOUT_UPSELL_PLUGIN_DIR . 'includes/class-checkout-upsell-loader.php',
+            CHECKOUT_UPSELL_PLUGIN_DIR . 'includes/class-checkout-upsell-i18n.php',
+            CHECKOUT_UPSELL_PLUGIN_DIR . 'public/class-checkout-upsell-public.php',
+            CHECKOUT_UPSELL_PLUGIN_DIR . 'admin/class-checkout-upsell-admin.php',
+        ];
+
+        foreach ($required_files as $file) {
+            if (file_exists($file)) {
+                require_once $file;
+            } else {
+                trigger_error("Required file $file not found.", E_USER_WARNING);
+            }
+        }
 
         $this->loader = new Checkout_Upsell_Loader();
     }
@@ -59,26 +81,55 @@ class Checkout_Upsell {
     }
 
     /**
+     * Register all hooks for the admin area.
+     */
+    private function define_admin_hooks() {
+        if ($this->is_request('admin')) {
+            $this->admin_instance = new Checkout_Upsell_Admin();
+            $this->loader->add_action('admin_init', $this->admin_instance, 'init');
+            $this->loader->add_action('wp_ajax_add_upsell_product', $this->admin_instance, 'ajax_add_upsell_product');
+            $this->loader->add_action('wp_ajax_remove_upsell_product', $this->admin_instance, 'ajax_remove_upsell_product');
+            $this->loader->add_action('woocommerce_order_status_completed', $this->admin_instance, 'track_upsell_purchase');
+        }
+    }
+
+    /**
+     * Register all hooks for the public area.
+     */
+    private function define_public_hooks() {
+        if ($this->is_request('frontend')) {
+            $this->public_instance = new Checkout_Upsell_Public();
+            $this->loader->add_action('woocommerce_after_checkout_form', $this->public_instance, 'display_upsell_offers');
+        }
+    }
+
+    /**
      * Hook into actions and filters.
      *
      * @since 1.3
      */
     private function init_hooks() {
         add_action('init', array($this, 'init'), 0);
+        $this->loader->run(); // Run the loader to register all hooks
     }
 
     /**
      * Init Checkout_Upsell when WordPress Initialises.
      */
     public function init() {
-        // Init action.
+        // Init action
         do_action('checkout_upsell_init');
+
+        // Enable plugin only if WooCommerce is active
+        if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_option('active_plugins')))) {
+            return;
+        }
     }
 
     /**
      * What type of request is this?
      *
-     * @param  string $type admin, ajax, cron or frontend.
+     * @param string $type admin, ajax, cron, or frontend.
      * @return bool
      */
     private function is_request($type) {
@@ -95,12 +146,12 @@ class Checkout_Upsell {
     }
 
     /**
-     * Get the plugin url.
+     * Get the plugin URL.
      *
      * @return string
      */
     public function plugin_url() {
-        return untrailingslashit(plugins_url('/', CHECKOUT_UPSELL_PLUGIN_DIR . '/checkout-upsell.php'));
+        return untrailingslashit(plugins_url('/', __FILE__));
     }
 
     /**
@@ -109,7 +160,7 @@ class Checkout_Upsell {
      * @return string
      */
     public function plugin_path() {
-        return untrailingslashit(plugin_dir_path(CHECKOUT_UPSELL_PLUGIN_DIR . '/checkout-upsell.php'));
+        return untrailingslashit(plugin_dir_path(__FILE__));
     }
 
     /**
@@ -120,4 +171,31 @@ class Checkout_Upsell {
     public function is_enabled() {
         return 'yes' === get_option('checkout_upsell_enabled', 'yes');
     }
+
+    /**
+     * Get the admin instance (for testing or external use).
+     *
+     * @return Checkout_Upsell_Admin|null
+     */
+    public function get_admin_instance() {
+        return $this->admin_instance;
+    }
+
+    /**
+     * Get the public instance (for testing or external use).
+     *
+     * @return Checkout_Upsell_Public|null
+     */
+    public function get_public_instance() {
+        return $this->public_instance;
+    }
 }
+
+// Initialize the plugin
+if (!function_exists('checkout_upsell')) {
+    function checkout_upsell() {
+        return Checkout_Upsell::instance();
+    }
+}
+
+$GLOBALS['checkout_upsell'] = checkout_upsell();

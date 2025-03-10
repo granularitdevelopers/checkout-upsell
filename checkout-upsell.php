@@ -3,7 +3,7 @@
  * Plugin Name: Checkout Upsell
  * Description: Display Upsell offers to clients at Checkout
  * Version: 1.3
- * Author: Teddy Waweru and Jefferson Gakuya
+ * Author: Teddy Waweru, Jefferson Gakuya and Alex Kwoba
  * Text Domain: checkout-upsell
  * Domain Path: /languages
  * Requires at least: 5.8

@@ -9,7 +9,9 @@ if (!defined('CHECKOUT_UPSELL_IS_TESTING')) {
                   (getenv('WP_TESTS_DIR') !== false) ||       // Check environment variable
                   (defined('PHPUnit_MAIN_METHOD') && PHPUnit_MAIN_METHOD); // Check PHPUnit
     define('CHECKOUT_UPSELL_IS_TESTING', $is_testing);
-    error_log("CHECKOUT_UPSELL_IS_TESTING set to: " . (CHECKOUT_UPSELL_IS_TESTING ? 'true' : 'false'));
+    if (CHECKOUT_UPSELL_IS_TESTING) {
+        error_log("CHECKOUT_UPSELL_IS_TESTING set to: true");
+    }
 }
 
 class Checkout_Upsell_Admin {
@@ -20,6 +22,7 @@ class Checkout_Upsell_Admin {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
 
         add_option('manual_upsell_prices', array());
+        
 
         $this->init_ajax_handlers();
         $this->init_tracking();
@@ -32,9 +35,18 @@ class Checkout_Upsell_Admin {
 
         wp_enqueue_style('select2', 'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css');
         wp_enqueue_script('select2', 'https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js', array('jquery'), '4.0.13', true);
+        wp_enqueue_script('chart-js', 'https://cdn.jsdelivr.net/npm/chart.js', [], '4.4.0', true);
+        wp_enqueue_style('datatables', 'https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css');
+        wp_enqueue_script('datatables', 'https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js', ['jquery'], '1.13.6', true);
 
-        wp_enqueue_script('checkout-upsell-admin-script', CHECKOUT_UPSELL_PLUGIN_URL . 'admin/js/admin-script.js', array('jquery'), CHECKOUT_UPSELL_VERSION, true);
+        wp_enqueue_script('checkout-upsell-admin-script', CHECKOUT_UPSELL_PLUGIN_URL . 'admin/js/admin-script.js', array('jquery', 'chart-js', 'datatables'), CHECKOUT_UPSELL_VERSION, true);
         wp_enqueue_style('checkout-upsell-admin-style', CHECKOUT_UPSELL_PLUGIN_URL . 'admin/css/admin-style.css', array(), CHECKOUT_UPSELL_VERSION);
+
+        wp_localize_script('checkout-upsell-admin-script', 'checkoutUpsellData', [
+            'selectPlaceholder' => esc_html__('Select a product', 'checkout-upsell'),
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('add_upsell_product')
+        ]);
     }
 
     private function init_ajax_handlers() {
@@ -255,7 +267,6 @@ class Checkout_Upsell_Admin {
         }
     }
 
-    // [Rest of the class methods remain unchanged]
     public function add_admin_menu() {
         add_menu_page(
             __('Checkout Upsell', 'checkout-upsell'),
@@ -297,14 +308,17 @@ class Checkout_Upsell_Admin {
 
         foreach (array_merge($dog_upsells, $cat_upsells) as $product_id) {
             $product = wc_get_product($product_id);
-            $upsell_data[] = array(
-                'id' => $product_id,
-                'name' => $product->get_name(),
-                'regular_price' => $product->get_regular_price(),
-                'upsell_price' => $manual_upsell_prices[$product_id] ?? $product->get_price(),
-                'min_quantity' => $product->get_meta('minimum_allowed_quantity', true) ?: 1,
-                'category' => in_array($this->get_tag_id('dog'), $product->get_tag_ids()) ? 'Dog' : 'Cat'
-            );
+            if ($product) {
+                $category = $this->get_product_category($product);
+                $upsell_data[] = array(
+                    'id' => $product_id,
+                    'name' => $product->get_name(),
+                    'regular_price' => $product->get_regular_price(),
+                    'upsell_price' => $manual_upsell_prices[$product_id] ?? $product->get_price(),
+                    'min_quantity' => $product->get_meta('minimum_allowed_quantity', true) ?: 1,
+                    'category' => $category
+                );
+            }
         }
 
         return $upsell_data;
@@ -334,10 +348,16 @@ class Checkout_Upsell_Admin {
         foreach ($product_cats as $cat) {
             $cat_name = strtolower($cat->name);
             if ($cat_name === 'dog' || $cat_name === 'cat') {
-                return $cat_name;
+                return ucfirst($cat_name); // Return 'Dog' or 'Cat'
             }
         }
-        return '';
+        // Fallback to tag-based category if no product category matches
+        $product_tags = wp_get_post_terms($product->get_id(), 'product_tag', ['fields' => 'slugs']);
+        $dog_tags = ['dog', 'adult-dog', 'puppy'];
+        $cat_tags = ['cat', 'adult-cat', 'kitten'];
+        if (array_intersect($product_tags, $dog_tags)) return 'Dog';
+        if (array_intersect($product_tags, $cat_tags)) return 'Cat';
+        return 'Unknown';
     }
 
     private function init_tracking() {
@@ -357,38 +377,53 @@ class Checkout_Upsell_Admin {
         foreach ($order->get_items() as $item) {
             if ($item->get_meta('_is_upsell')) {
                 $product_id = $item->get_product_id();
-                if (isset($impressions[$product_id])) {
-                    $impressions[$product_id]['total_purchased'] = ($impressions[$product_id]['total_purchased'] ?? 0) + 1;
+                if (!isset($impressions[$product_id])) {
+                    $impressions[$product_id] = array(
+                        'total_shown' => 0,
+                        'total_purchased' => 0,
+                        'show_timestamps' => array(),
+                        'purchase_timestamps' => array(),
+                        'purchase_data' => array(),
+                        'cart_types' => array('dog' => 0, 'cat' => 0)
+                    );
+                }
 
-                    $impressions[$product_id]['purchase_timestamps'] = $impressions[$product_id]['purchase_timestamps'] ?? [];
-                    $impressions[$product_id]['purchase_timestamps'][] = $current_timestamp;
+                $impressions[$product_id]['total_purchased'] = ($impressions[$product_id]['total_purchased'] ?? 0) + 1;
+                $impressions[$product_id]['purchase_timestamps'][] = $current_timestamp;
 
-                    $impressions[$product_id]['purchase_data'] = $impressions[$product_id]['purchase_data'] ?? [];
-                    $original_cart_total = $item->get_meta('_original_cart_total');
-                    if ($original_cart_total) {
-                        $impressions[$product_id]['purchase_data'][] = array(
-                            'timestamp' => $current_timestamp,
-                            'original_cart_total' => $original_cart_total,
-                            'quantity_purchased' => $item->get_quantity()
-                        );
-                    }
+                $impressions[$product_id]['purchase_data'] = $impressions[$product_id]['purchase_data'] ?? [];
+                $original_cart_total = $item->get_meta('_original_cart_total');
+                if ($original_cart_total) {
+                    $impressions[$product_id]['purchase_data'][] = array(
+                        'timestamp' => $current_timestamp,
+                        'original_cart_total' => $original_cart_total,
+                        'quantity_purchased' => $item->get_quantity()
+                    );
+                }
 
-                    if (count($impressions[$product_id]['purchase_timestamps']) > 100) {
-                        $impressions[$product_id]['purchase_timestamps'] = array_slice(
-                            $impressions[$product_id]['purchase_timestamps'],
-                            -100
-                        );
-                    }
-                    if (count($impressions[$product_id]['purchase_data']) > 100) {
-                        $impressions[$product_id]['purchase_data'] = array_slice(
-                            $impressions[$product_id]['purchase_data'],
-                            -100
-                        );
-                    }
+                if (count($impressions[$product_id]['purchase_timestamps']) > 100) {
+                    $impressions[$product_id]['purchase_timestamps'] = array_slice(
+                        $impressions[$product_id]['purchase_timestamps'],
+                        -100
+                    );
+                }
+                if (count($impressions[$product_id]['purchase_data']) > 100) {
+                    $impressions[$product_id]['purchase_data'] = array_slice(
+                        $impressions[$product_id]['purchase_data'],
+                        -100
+                    );
+                }
+
+                $category = $this->get_product_category(wc_get_product($product_id));
+                if ($category === 'Dog') {
+                    $impressions[$product_id]['cart_types']['dog'] = ($impressions[$product_id]['cart_types']['dog'] ?? 0) + 1;
+                } elseif ($category === 'Cat') {
+                    $impressions[$product_id]['cart_types']['cat'] = ($impressions[$product_id]['cart_types']['cat'] ?? 0) + 1;
                 }
             }
         }
         update_option('checkout_upsell_impressions', $impressions);
+        error_log('Updated Impressions: ' . print_r($impressions, true)); // Debug log
     }
 
     public function get_upsell_metrics() {
@@ -397,29 +432,45 @@ class Checkout_Upsell_Admin {
         
         foreach ($impressions as $product_id => $data) {
             $product = wc_get_product($product_id);
-            if (!$product) continue;
+            if (!$product) {
+                continue;
+            }
             
-            $conversion_rate = $data['total_shown'] > 0 
-                ? ($data['total_purchased'] / $data['total_shown']) * 100 
+            $category = $this->get_product_category($product);
+            $total_shown = isset($data['total_shown']) ? (int) $data['total_shown'] : 0;
+            $total_purchased = isset($data['total_purchased']) ? (int) $data['total_purchased'] : 0;
+            
+            $conversion_rate = $total_shown > 0 
+                ? round(($total_purchased / $total_shown) * 100, 2) 
                 : 0;
             
             $thirty_days_ago = strtotime('-30 days');
-            $recent_impressions = count(array_filter($data['show_timestamps'] ?? [], function($timestamp) use ($thirty_days_ago) {
-                return $timestamp >= $thirty_days_ago;
-            }));
+            $recent_impressions = count(array_filter(
+                $data['show_timestamps'] ?? [],
+                function($timestamp) use ($thirty_days_ago) {
+                    return $timestamp >= $thirty_days_ago;
+                }
+            ));
+            
+            $cart_types = isset($data['cart_types']) && is_array($data['cart_types']) 
+                ? $data['cart_types'] 
+                : array('dog' => 0, 'cat' => 0);
             
             $metrics[$product_id] = array(
                 'name' => $product->get_name(),
-                'total_shown' => $data['total_shown'],
-                'total_purchased' => $data['total_purchased'],
-                'conversion_rate' => round($conversion_rate, 2),
+                'total_shown' => $total_shown,
+                'total_purchased' => $total_purchased,
+                'category' => $category,
+                'conversion_rate' => $conversion_rate,
                 'recent_impressions' => $recent_impressions,
                 'cart_type_distribution' => array(
-                    'dog' => $data['cart_types']['dog'] ?? 0,
-                    'cat' => $data['cart_types']['cat'] ?? 0
+                    'dog' => (int) ($cart_types['dog'] ?? 0),
+                    'cat' => (int) ($cart_types['cat'] ?? 0)
                 )
             );
         }
+        
+        error_log('Generated Metrics: ' . print_r($metrics, true)); // Debug log
         return $metrics;
     }
 

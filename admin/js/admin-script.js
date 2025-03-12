@@ -1,4 +1,33 @@
 jQuery(document).ready(function($) {
+    // Initialize Select2 for the product selection dropdown
+    $('#add-upsell-product-select').select2({
+        placeholder: checkoutUpsellData.selectPlaceholder,
+        allowClear: true,
+        width: '300px'
+    });
+
+    // Initialize DataTable only if it hasn't been initialized yet
+    var table;
+    if (!$.fn.DataTable.isDataTable('#upsell-products-table')) {
+        table = $('#upsell-products-table').DataTable({
+            "order": [[0, "desc"]],
+            "pageLength": 10,
+            "responsive": true,
+            "dom": 'lrtip'
+        });
+    } else {
+        // Retrieve the existing instance if already initialized
+        table = $('#upsell-products-table').DataTable();
+    }
+    // Update form fields dynamically when a product is selected
+    $('#add-upsell-product-select').on('change', function() {
+        const selectedOption = $(this).find('option:selected');
+        const price = selectedOption.data('price');
+        const category = selectedOption.data('category');
+        $('#upsell-price').val(price || '');
+        $('#product-category').text(category || 'N/A');
+    });
+
     // Handle updating upsell prices
     $('.update-upsell-price').on('click', function() {
         var $button = $(this);
@@ -42,14 +71,15 @@ jQuery(document).ready(function($) {
         e.preventDefault();
 
         var productId = $('#add-upsell-product-select').val();
+        var upsellPrice = $('#upsell-price').val();
         var submitButton = $('#add-upsell-submit');
+        var table = $('#upsell-products-table').DataTable();
 
         if (!productId) {
             alert('Please select a product');
             return;
         }
 
-        // Show loading state
         submitButton.prop('disabled', true).text('Adding...');
         
         $.ajax({
@@ -58,36 +88,29 @@ jQuery(document).ready(function($) {
             data: {
                 action: 'add_upsell_product',
                 nonce: $('#add_upsell_nonce').val(),
-                product_id: productId
+                product_id: productId,
+                price: upsellPrice
             },
             success: function(response) {
                 if (response.success) {
-                    alert(response.data.message);
-                    // Add the new product to the table
                     var product = response.data.product;
-                    var newRow = `
-                        <tr>
-                            <td>${product.id}</td>
-                            <td>${product.name}</td>
-                            <td>${product.regular_price}</td>
-                            <td>
-                                <input type="number" step="0.01" name="upsell_price[${product.id}]" 
-                                    value="${product.upsell_price}" class="small-text upsell-price-input"
-                                    data-product-id="${product.id}">
-                                <button type="button" class="button update-upsell-price" data-product-id="${product.id}">
-                                    Update
-                                </button>
-                            </td>
-                            <td>${product.min_quantity}</td>
-                            <td>${product.category}</td>
-                            <td>
-                                <button type="button" class="button remove-upsell" data-product-id="${product.id}">
-                                    Remove
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                    $('#upsell-products-table tbody').append(newRow);
+                    var newRow = [
+                        product.id,
+                        product.name,
+                        product.regular_price,
+                        `<input type="number" step="0.01" name="upsell_price[${product.id}]" 
+                            value="${product.upsell_price}" class="small-text upsell-price-input"
+                            data-product-id="${product.id}">
+                        <button type="button" class="button update-upsell-price" data-product-id="${product.id}">
+                            Update
+                        </button>`,
+                        product.min_quantity,
+                        `<span class="dashicons ${product.category === 'Dog' ? 'dashicons-pets' : 'dashicons-heart'}"></span> ${product.category}`,
+                        `<button type="button" class="button remove-upsell" data-product-id="${product.id}">
+                            Remove
+                        </button>`
+                    ];
+                    table.row.add(newRow).draw(false); // Add row without resetting pagination
                     $('#add-upsell-product-select').val('').trigger('change');
                     alert(response.data.message);
                 } else {
@@ -99,7 +122,6 @@ jQuery(document).ready(function($) {
                 alert('An error occurred while adding the product. Please check the console for details.');
             },
             complete: function () {
-                // Reset button state
                 submitButton.prop('disabled', false).text('Add Upsell Product');
             }
         });
@@ -109,6 +131,7 @@ jQuery(document).ready(function($) {
     $(document).on('click', '.remove-upsell', function() {
         var productId = $(this).data('product-id');
         var $row = $(this).closest('tr');
+        var table = $('#upsell-products-table').DataTable();
         
         if (confirm('Are you sure you want to remove this product from the upsell list?')) {
             $.ajax({
@@ -121,8 +144,8 @@ jQuery(document).ready(function($) {
                 },
                 success: function(response) {
                     if (response.success) {
+                        table.row($row).remove().draw(false); // Remove row without resetting pagination
                         alert(response.data.message);
-                        $row.remove();
                     } else {
                         alert('Failed to remove product. Please try again.');
                     }
@@ -131,10 +154,173 @@ jQuery(document).ready(function($) {
         }
     });
 
-    // Add autocomplete to the product selection dropdown
-    $('#add-upsell-product-select').select2({
-        placeholder: 'Select a product',
-        allowClear: true,
-        width: '300px'
+    // Bar Chart: Times Shown vs Times Purchased
+    if (document.getElementById('conversionBarChart')) {
+        console.log('Bar Chart Metrics:', upsellMetrics); // Debug log
+        if (Object.keys(upsellMetrics).length === 0) {
+            const chartWrapper = document.querySelector('#conversionBarChart').parentElement;
+            chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No metrics data available for bar chart.</p>';
+        } else {
+            const truncateLabel = (label, maxLength = 20) => {
+                return label.length > maxLength ? label.substring(0, maxLength) + '...' : label;
+            };
+
+            const fullLabels = Object.values(upsellMetrics).map(metric => metric.name);
+            const truncatedLabels = fullLabels.map(label => truncateLabel(label, 20));
+
+            const barChartCtx = document.getElementById('conversionBarChart').getContext('2d');
+            new Chart(barChartCtx, {
+                type: 'bar',
+                data: {
+                    labels: truncatedLabels,
+                    datasets: [
+                        {
+                            label: 'Times Shown',
+                            data: Object.values(upsellMetrics).map(metric => metric.total_shown),
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Times Purchased',
+                            data: Object.values(upsellMetrics).map(metric => metric.total_purchased),
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Count'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Product'
+                            },
+                            ticks: {
+                                maxRotation: 90,
+                                minRotation: 90,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    const index = tooltipItems[0].dataIndex;
+                                    return fullLabels[index];
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Pie Chart: Purchases by Category
+    if (document.getElementById('categoryPieChart')) {
+        console.log('Pie Chart Metrics:', upsellMetrics); // Debug log
+        if (Object.keys(upsellMetrics).length === 0) {
+            const chartWrapper = document.querySelector('#categoryPieChart').parentElement;
+            chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No metrics data available for pie chart.</p>';
+        } else {
+            const categoryData = Object.values(upsellMetrics).reduce((acc, metric) => {
+                console.log('Processing Metric:', metric); // Debug log
+                const category = metric.category || 'Unknown';
+                if (category === 'Dog') {
+                    acc.dog = (acc.dog || 0) + (metric.total_purchased || 0);
+                } else if (category === 'Cat') {
+                    acc.cat = (acc.cat || 0) + (metric.total_purchased || 0);
+                }
+                return acc;
+            }, { dog: 0, cat: 0 });
+
+            console.log('Category Data:', categoryData); // Debug log
+            if (categoryData.dog === 0 && categoryData.cat === 0) {
+                const chartWrapper = document.querySelector('#categoryPieChart').parentElement;
+                chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No purchase data available for categories.</p>';
+            } else {
+                const pieChartCtx = document.getElementById('categoryPieChart').getContext('2d');
+                new Chart(pieChartCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Dog', 'Cat'],
+                        datasets: [{
+                            data: [categoryData.dog, categoryData.cat],
+                            backgroundColor: ['rgba(54, 162, 235, 0.6)', 'rgba(255, 99, 132, 0.6)'],
+                            borderColor: ['rgba(54, 162, 235, 1)', 'rgba(255, 99, 132, 1)'],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'top'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Purchases by Category'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    // Handle report generation
+    $('.generate-report').on('click', function() {
+        if (checkoutUpsellData.isPremium !== 'true') {
+            alert('Please upgrade to a premium plan to access this feature.');
+            return;
+        }
+
+        var format = $(this).data('format');
+        var button = $(this);
+
+        $.ajax({
+            url: checkoutUpsellData.ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'generate_report',
+                nonce: checkoutUpsellData.generateReportNonce,
+                format: format
+            },
+            beforeSend: function() {
+                button.prop('disabled', true).text('Generating...');
+            },
+            success: function(response) {
+                if (response.success) {
+                    // The response is handled by the browser (file download)
+                } else {
+                    alert(response.data.message || 'Failed to generate report. Please try again.');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error generating report:', error);
+                alert('An error occurred while generating the report. Please check the console for details.');
+            },
+            complete: function() {
+                button.prop('disabled', false).text(format === 'pdf' ? 'Download PDF Report' : 'Download CSV Report');
+            }
+        });
     });
 });

@@ -155,172 +155,140 @@ jQuery(document).ready(function($) {
     });
 
     // Bar Chart: Times Shown vs Times Purchased
-    if (document.getElementById('conversionBarChart')) {
-        console.log('Bar Chart Metrics:', upsellMetrics); // Debug log
-        if (Object.keys(upsellMetrics).length === 0) {
-            const chartWrapper = document.querySelector('#conversionBarChart').parentElement;
-            chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No metrics data available for bar chart.</p>';
-        } else {
-            const truncateLabel = (label, maxLength = 20) => {
-                return label.length > maxLength ? label.substring(0, maxLength) + '...' : label;
-            };
+if (document.getElementById('conversionBarChart')) {
+    // Ensure upsellMetrics exists and has data
+    if (typeof upsellMetrics === 'undefined' || Object.keys(upsellMetrics).length === 0) {
+        const chartWrapper = document.querySelector('#conversionBarChart').parentElement;
+        chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No metrics data available for bar chart.</p>';
+    } else {
+        const truncateLabel = (label, maxLength = 20) => {
+            return label.length > maxLength ? label.substring(0, maxLength) + '...' : label;
+        };
 
-            const fullLabels = Object.values(upsellMetrics).map(metric => metric.name);
-            const truncatedLabels = fullLabels.map(label => truncateLabel(label, 20));
+        // Extract data from metrics object
+        const fullLabels = Object.values(upsellMetrics).map(metric => metric.name || 'Unknown');
+        const truncatedLabels = fullLabels.map(label => truncateLabel(label));
+        const timesShown = Object.values(upsellMetrics).map(metric => parseInt(metric.total_shown) || 0);
+        const timesPurchased = Object.values(upsellMetrics).map(metric => parseInt(metric.total_purchased) || 0);
 
-            const barChartCtx = document.getElementById('conversionBarChart').getContext('2d');
-            new Chart(barChartCtx, {
-                type: 'bar',
-                data: {
-                    labels: truncatedLabels,
-                    datasets: [
-                        {
-                            label: 'Times Shown',
-                            data: Object.values(upsellMetrics).map(metric => metric.total_shown),
-                            backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                            borderColor: 'rgba(54, 162, 235, 1)',
-                            borderWidth: 1
-                        },
-                        {
-                            label: 'Times Purchased',
-                            data: Object.values(upsellMetrics).map(metric => metric.total_purchased),
-                            backgroundColor: 'rgba(255, 99, 132, 0.6)',
-                            borderColor: 'rgba(255, 99, 132, 1)',
-                            borderWidth: 1
+        const barChartCtx = document.getElementById('conversionBarChart').getContext('2d');
+        new Chart(barChartCtx, {
+            type: 'bar',
+            data: {
+                labels: truncatedLabels,
+                datasets: [
+                    {
+                        label: 'Times Shown',
+                        data: timesShown,
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Times Purchased',
+                        data: timesPurchased,
+                        backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Count'
                         }
-                    ]
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Product'
+                        },
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 45,
+                            font: {
+                                size: 10
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                const index = tooltipItems[0].dataIndex;
+                                return fullLabels[index];
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
+// Pie Chart: Purchases by Category
+if (document.getElementById('categoryPieChart')) {
+    // Ensure upsellMetrics exists and has data
+    if (typeof upsellMetrics === 'undefined' || Object.keys(upsellMetrics).length === 0) {
+        const chartWrapper = document.querySelector('#categoryPieChart').parentElement;
+        chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No metrics data available for pie chart.</p>';
+    } else {
+        // Process category data more safely
+        const categoryData = {dog: 0, cat: 0};
+        
+        Object.values(upsellMetrics).forEach(metric => {
+            const category = (metric.category || '').toLowerCase();
+            const purchases = parseInt(metric.total_purchased) || 0;
+            
+            if (category === 'dog') {
+                categoryData.dog += purchases;
+            } else if (category === 'cat') {
+                categoryData.cat += purchases;
+            }
+        });
+
+        // Check if we have any purchases
+        if (categoryData.dog === 0 && categoryData.cat === 0) {
+            const chartWrapper = document.querySelector('#categoryPieChart').parentElement;
+            chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No purchase data available for categories.</p>';
+        } else {
+            const pieChartCtx = document.getElementById('categoryPieChart').getContext('2d');
+            new Chart(pieChartCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Dog Products', 'Cat Products'],
+                    datasets: [{
+                        data: [categoryData.dog, categoryData.cat],
+                        backgroundColor: ['rgba(54, 162, 235, 0.8)', 'rgba(255, 99, 132, 0.8)'],
+                        borderColor: ['rgba(54, 162, 235, 1)', 'rgba(255, 99, 132, 1)'],
+                        borderWidth: 1
+                    }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: 'Count'
-                            }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Product'
-                            },
-                            ticks: {
-                                maxRotation: 90,
-                                minRotation: 90,
-                                font: {
-                                    size: 12
-                                }
-                            }
-                        }
-                    },
                     plugins: {
                         legend: {
                             position: 'top'
                         },
-                        tooltip: {
-                            callbacks: {
-                                title: function(tooltipItems) {
-                                    const index = tooltipItems[0].dataIndex;
-                                    return fullLabels[index];
-                                }
-                            }
+                        title: {
+                            display: true,
+                            text: 'Purchases by Category'
                         }
                     }
                 }
             });
         }
     }
-
-    // Pie Chart: Purchases by Category
-    if (document.getElementById('categoryPieChart')) {
-        console.log('Pie Chart Metrics:', upsellMetrics); // Debug log
-        if (Object.keys(upsellMetrics).length === 0) {
-            const chartWrapper = document.querySelector('#categoryPieChart').parentElement;
-            chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No metrics data available for pie chart.</p>';
-        } else {
-            const categoryData = Object.values(upsellMetrics).reduce((acc, metric) => {
-                console.log('Processing Metric:', metric); // Debug log
-                const category = metric.category || 'Unknown';
-                if (category === 'Dog') {
-                    acc.dog = (acc.dog || 0) + (metric.total_purchased || 0);
-                } else if (category === 'Cat') {
-                    acc.cat = (acc.cat || 0) + (metric.total_purchased || 0);
-                }
-                return acc;
-            }, { dog: 0, cat: 0 });
-
-            console.log('Category Data:', categoryData); // Debug log
-            if (categoryData.dog === 0 && categoryData.cat === 0) {
-                const chartWrapper = document.querySelector('#categoryPieChart').parentElement;
-                chartWrapper.innerHTML = '<p style="text-align: center; color: #666;">No purchase data available for categories.</p>';
-            } else {
-                const pieChartCtx = document.getElementById('categoryPieChart').getContext('2d');
-                new Chart(pieChartCtx, {
-                    type: 'pie',
-                    data: {
-                        labels: ['Dog', 'Cat'],
-                        datasets: [{
-                            data: [categoryData.dog, categoryData.cat],
-                            backgroundColor: ['rgba(54, 162, 235, 0.6)', 'rgba(255, 99, 132, 0.6)'],
-                            borderColor: ['rgba(54, 162, 235, 1)', 'rgba(255, 99, 132, 1)'],
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'top'
-                            },
-                            title: {
-                                display: true,
-                                text: 'Purchases by Category'
-                            }
-                        }
-                    }
-                });
-            }
-        }
-    }
-
-    // Handle report generation
-    $('.generate-report').on('click', function() {
-        if (checkoutUpsellData.isPremium !== 'true') {
-            alert('Please upgrade to a premium plan to access this feature.');
-            return;
-        }
-
-        var format = $(this).data('format');
-        var button = $(this);
-
-        $.ajax({
-            url: checkoutUpsellData.ajaxurl,
-            type: 'POST',
-            data: {
-                action: 'generate_report',
-                nonce: checkoutUpsellData.generateReportNonce,
-                format: format
-            },
-            beforeSend: function() {
-                button.prop('disabled', true).text('Generating...');
-            },
-            success: function(response) {
-                if (response.success) {
-                    // The response is handled by the browser (file download)
-                } else {
-                    alert(response.data.message || 'Failed to generate report. Please try again.');
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Error generating report:', error);
-                alert('An error occurred while generating the report. Please check the console for details.');
-            },
-            complete: function() {
-                button.prop('disabled', false).text(format === 'pdf' ? 'Download PDF Report' : 'Download CSV Report');
-            }
-        });
-    });
+}
 });
